@@ -23,7 +23,7 @@ CSV_FIELDS = [
     "download_latency_ms", "download_jitter_ms",
     "upload_latency_ms", "upload_jitter_ms",
     "packet_loss_percent",
-    "download_bytes", "upload_bytes",
+    "download_mb", "upload_mb",
     "server_id_used", "server_name", "server_location", "server_country",
     "status", "error",
 ]
@@ -283,15 +283,32 @@ def write_row(csv_path, row):
         w.writerow(row)
 
 
+def _coerce_mb_value(value):
+    if value in (None, ""):
+        return 0.0
+    return float(value)
+
+
+def _format_mb(value):
+    return f"{_coerce_mb_value(value):.3f} MB"
+
+
+def calculate_total_mb(result):
+    return _coerce_mb_value(result.get("download_mb")) + _coerce_mb_value(result.get("upload_mb"))
+
+
 def run_one(runner, csv_path):
     try:
         result = runner.run()
         result.update({"status": "ok", "error": ""})
         write_row(csv_path, result)
-        log.info("RESULT: down=%s Mbps  up=%s Mbps  idle=%sms  loss=%s%%  server=%s",
+        total_mb = calculate_total_mb(result)
+        log.info("RESULT: down=%s Mbps  up=%s Mbps  idle=%sms  loss=%s%%  server=%s  data=%s (down=%s, up=%s)",
                  result["download_mbps"], result["upload_mbps"],
                  result["idle_latency_ms"], result["packet_loss_percent"],
-                 result["server_id_used"])
+                 result["server_id_used"], _format_mb(total_mb),
+                 _format_mb(result["download_mb"]),
+                 _format_mb(result["upload_mb"]))
     except Exception as e:
         write_row(csv_path, {
             "timestamp": local_timestamp(),

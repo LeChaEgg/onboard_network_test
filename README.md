@@ -128,8 +128,8 @@ CSV columns:
 | `upload_latency_ms` | Upload latency reported by Ookla |
 | `upload_jitter_ms` | Upload jitter reported by Ookla |
 | `packet_loss_percent` | Packet loss reported by Ookla |
-| `download_bytes` | Bytes used by the download test |
-| `upload_bytes` | Bytes used by the upload test |
+| `download_mb` | Data used by the download test (MB) |
+| `upload_mb` | Data used by the upload test (MB) |
 | `server_id_used` | Server ID actually used |
 | `server_name` / `server_location` / `server_country` | Server metadata |
 | `status` | `ok` for completed rows, `error` for failed tests |

@@ -146,9 +146,11 @@ class SpeedtestRunner:
         return round(float(value), digits)
 
     @staticmethod
-    def _bytes(section):
+    def _megabytes(section):
         value = (section or {}).get("bytes")
-        return int(value) if value is not None else ""
+        if value is None:
+            return ""
+        return round(float(value) / 1_000_000, 3)
 
     def run(self) -> dict:
         result = self._run_with_candidates()
@@ -170,8 +172,8 @@ class SpeedtestRunner:
             "upload_latency_ms": self._round(upload_latency.get("iqm")),
             "upload_jitter_ms": self._round(upload_latency.get("jitter")),
             "packet_loss_percent": self._round(result.get("packetLoss"), digits=3),
-            "download_bytes": self._bytes(download),
-            "upload_bytes": self._bytes(upload),
+            "download_mb": self._megabytes(download),
+            "upload_mb": self._megabytes(upload),
             "server_id_used": server.get("id", ""),
             "server_name": server.get("name", ""),
             "server_location": server.get("location", ""),
