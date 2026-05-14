@@ -52,8 +52,8 @@ For consistent comparisons across providers, pin all tests to the same server:
 python monitor.py --list-servers
 # Pick one or more IDs from the output, then set them in config.yaml:
 #   server_ids:
-#     - 28910
-#     - 48463
+#     - 14623
+#     - 24333
 ```
 
 ---
@@ -62,11 +62,11 @@ python monitor.py --list-servers
 
 ```yaml
 server_ids:              # Candidate server IDs, tried in order; use [] for auto-select
-  - 28910
-  - 48463
+  - 14623
+  - 24333
 server_fallback: true    # Fall back to auto if all configured server_ids fail
 speedtest_timeout: 15    # Seconds before an individual Speedtest.net request times out
-speedtest_secure: true   # true matches: speedtest-cli --secure --list
+speedtest_secure: false  # false matches: speedtest-cli --list
 
 interval: 60             # Seconds between every individual test
 download_rounds: 1       # Download tests per cycle
@@ -134,4 +134,4 @@ CSV columns:
 
 All tests within a cycle use the same server, re-evaluated at the start of each cycle.
 
-`monitor.py --list-servers` uses the same `speedtest_secure` setting as the monitor run. To compare with the Python CLI directly, use `speedtest-cli --secure --list` when `speedtest_secure: true`, or `speedtest-cli --list` when `speedtest_secure: false`.
+`monitor.py --list-servers` uses the same `speedtest_secure` setting as the monitor run. To compare with the Python CLI directly, use `speedtest-cli --list` when `speedtest_secure: false`, or `speedtest-cli --secure --list` when `speedtest_secure: true`.

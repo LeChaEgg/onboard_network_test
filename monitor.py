@@ -23,11 +23,11 @@ CSV_FIELDS = [
 ]
 
 DEFAULT_CONFIG = {
-    "server_ids": [28910, 48463],
+    "server_ids": [14623, 24333],
     "server_id": None,
     "server_fallback": True,
     "speedtest_timeout": 15,
-    "speedtest_secure": True,
+    "speedtest_secure": False,
     "interval": 60,
     "download_rounds": 1,
     "upload_rounds": 5,
