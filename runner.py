@@ -12,8 +12,10 @@ def local_timestamp():
 
 
 class SpeedtestRunner:
-    def __init__(self, server_id=None, fallback=True, timeout=15, secure=True):
-        self.server_id = self._normalize_server_id(server_id)
+    def __init__(self, server_id=None, server_ids=None, fallback=True, timeout=15, secure=True):
+        candidates = server_ids if server_ids is not None else server_id
+        self.server_ids = self._normalize_server_ids(candidates)
+        self.server_id = self.server_ids[0] if self.server_ids else None
         self.fallback = self._normalize_bool(fallback, "fallback")
         self.timeout = self._normalize_timeout(timeout)
         self.secure = self._normalize_bool(secure, "secure")
@@ -30,6 +32,25 @@ class SpeedtestRunner:
         if server_id <= 0:
             raise ValueError("server_id must be a positive integer or null")
         return server_id
+
+    @classmethod
+    def _normalize_server_ids(cls, server_ids):
+        if server_ids in (None, ""):
+            return []
+        if isinstance(server_ids, (str, int)):
+            server_ids = [server_ids]
+
+        normalized = []
+        try:
+            iterator = iter(server_ids)
+        except TypeError as e:
+            raise ValueError("server_ids must be a list of positive integers") from e
+
+        for server_id in iterator:
+            normalized_id = cls._normalize_server_id(server_id)
+            if normalized_id is not None and normalized_id not in normalized:
+                normalized.append(normalized_id)
+        return normalized
 
     @staticmethod
     def _normalize_bool(value, name):
@@ -60,17 +81,23 @@ class SpeedtestRunner:
 
     def _pick_server(self, s):
         """Select server, with optional fallback. Returns the chosen server dict."""
-        if self.server_id:
+        last_error = None
+        for server_id in self.server_ids:
             try:
-                s.get_servers([self.server_id])
+                s.get_servers([server_id])
                 if not s.servers:
                     raise speedtest.NoMatchedServers()
                 return s.get_best_server()
             except Exception as e:
-                if self.fallback:
-                    log.warning("Server %s unavailable (%s); falling back to auto", self.server_id, e)
-                else:
-                    raise
+                last_error = e
+                log.warning("Server %s unavailable (%s)", server_id, e)
+                continue
+
+        if self.server_ids and not self.fallback:
+            raise last_error or speedtest.NoMatchedServers()
+
+        if self.server_ids:
+            log.warning("All configured servers unavailable; falling back to auto")
         s.get_servers([])
         return s.get_best_server()
 
@@ -118,7 +145,6 @@ class SpeedtestRunner:
             "upload_mbps":   round(val, 3) if mode == "upload"    else "",
             "ping_ms": round(float(ping), 2) if ping is not None else "",
             "bytes_transferred": bytes_transferred,
-            "server_id_target": self.server_id or "",
             "server_id_used":   server.get("id", ""),
             "server_name":      server.get("name", ""),
         }

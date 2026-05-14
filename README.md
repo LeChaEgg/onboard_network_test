@@ -50,8 +50,10 @@ For consistent comparisons across providers, pin all tests to the same server:
 
 ```bash
 python monitor.py --list-servers
-# Pick an ID from the output, then set it in config.yaml:
-#   server_id: 28910
+# Pick one or more IDs from the output, then set them in config.yaml:
+#   server_ids:
+#     - 28910
+#     - 48463
 ```
 
 ---
@@ -59,8 +61,10 @@ python monitor.py --list-servers
 ## config.yaml
 
 ```yaml
-server_id: 28910         # Integer server ID to pin, or null for auto-select
-server_fallback: true    # Fall back to auto if the pinned server is unreachable
+server_ids:              # Candidate server IDs, tried in order; use [] for auto-select
+  - 28910
+  - 48463
+server_fallback: true    # Fall back to auto if all configured server_ids fail
 speedtest_timeout: 15    # Seconds before an individual Speedtest.net request times out
 speedtest_secure: true   # true matches: speedtest-cli --secure --list
 
@@ -123,7 +127,6 @@ CSV columns:
 | `upload_mbps` | Upload speed (Mbps), empty for download rows |
 | `ping_ms` | Latency to the test server (ms) |
 | `bytes_transferred` | Bytes received for download rows, bytes sent for upload rows |
-| `server_id_target` | Server ID requested in config (empty if auto) |
 | `server_id_used` | Server ID actually used |
 | `server_name` | Human-readable server location |
 | `status` | `ok` for completed rows, `error` for failed tests |

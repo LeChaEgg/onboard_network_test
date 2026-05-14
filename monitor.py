@@ -18,11 +18,12 @@ log = logging.getLogger(__name__)
 CSV_FIELDS = [
     "timestamp", "test_type",
     "download_mbps", "upload_mbps", "ping_ms", "bytes_transferred",
-    "server_id_target", "server_id_used", "server_name",
+    "server_id_used", "server_name",
     "status", "error",
 ]
 
 DEFAULT_CONFIG = {
+    "server_ids": [28910, 48463],
     "server_id": None,
     "server_fallback": True,
     "speedtest_timeout": 15,
@@ -89,6 +90,22 @@ def _coerce_int(value, name, minimum=None, maximum=None):
     return number
 
 
+def _coerce_server_ids(value, name):
+    if value in (None, ""):
+        return []
+    if isinstance(value, (str, int)):
+        value = [value]
+    if not isinstance(value, list):
+        raise ValueError(f"{name} must be a list of positive integers")
+
+    server_ids = []
+    for item in value:
+        server_id = _coerce_int(item, name, minimum=1)
+        if server_id not in server_ids:
+            server_ids.append(server_id)
+    return server_ids
+
+
 def _coerce_positive_number(value, name):
     if isinstance(value, bool):
         raise ValueError(f"{name} must be a positive number")
@@ -123,11 +140,15 @@ def validate_config(raw):
 
     cfg = default_config()
 
-    server_id = raw.get("server_id", cfg["server_id"])
-    if server_id in (None, ""):
-        cfg["server_id"] = None
+    if raw.get("server_ids") not in (None, ""):
+        cfg["server_ids"] = _coerce_server_ids(raw.get("server_ids"), "server_ids")
     else:
-        cfg["server_id"] = _coerce_int(server_id, "server_id", minimum=1)
+        legacy_server_id = raw.get("server_id", cfg["server_id"])
+        if legacy_server_id in (None, ""):
+            cfg["server_ids"] = _coerce_server_ids(cfg["server_ids"], "server_ids")
+        else:
+            cfg["server_ids"] = [_coerce_int(legacy_server_id, "server_id", minimum=1)]
+    cfg["server_id"] = cfg["server_ids"][0] if cfg["server_ids"] else None
 
     cfg["server_fallback"] = _coerce_bool(
         raw.get("server_fallback", cfg["server_fallback"]),
@@ -251,7 +272,6 @@ def run_one(mode, runner, csv_path):
         write_row(csv_path, {
             "timestamp": local_timestamp(),
             "test_type": mode,
-            "server_id_target": getattr(runner, "server_id", "") or "",
             "status": "error",
             "error": str(e),
         })
@@ -272,6 +292,19 @@ def list_servers(secure=True):
             count += 1
             if count >= 30:
                 return
+
+
+def format_server_ids(server_ids):
+    return ",".join(str(server_id) for server_id in server_ids) if server_ids else "auto"
+
+
+def manual_speedtest_command(server_ids, secure):
+    parts = ["speedtest-cli"]
+    if secure:
+        parts.append("--secure")
+    if server_ids:
+        parts.extend(["--server", str(server_ids[0])])
+    return " ".join(parts)
 
 
 def prompt_session_info():
@@ -304,17 +337,24 @@ def main():
     interval = cfg.get("interval", 60)
     download_rounds = cfg.get("download_rounds", 1)
     upload_rounds = cfg.get("upload_rounds", 5)
+    server_ids = cfg.get("server_ids", [])
+    secure = cfg.get("speedtest_secure", True)
+    fallback = cfg.get("server_fallback", True)
 
     runner = SpeedtestRunner(
-        server_id=cfg.get("server_id"),
-        fallback=cfg.get("server_fallback", True),
+        server_ids=server_ids,
+        fallback=fallback,
         timeout=cfg.get("speedtest_timeout", 15),
-        secure=cfg.get("speedtest_secure", True),
+        secure=secure,
     )
 
     print()
     log.info("Provider: %s | Network: %s", provider, network)
     log.info("Output:   %s", csv_path)
+    log.info("Speedtest: target_servers=%s secure=%s fallback=%s",
+             format_server_ids(server_ids), secure, fallback)
+    if server_ids:
+        log.info("Manual check first candidate: %s", manual_speedtest_command(server_ids, secure))
     log.info("Cycle: %d download + %d upload, interval=%ss",
              download_rounds, upload_rounds, interval)
     print()
