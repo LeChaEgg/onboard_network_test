@@ -11,7 +11,7 @@ from datetime import datetime
 
 import yaml
 
-from runner import SpeedtestRunner
+from runner import SpeedtestRunner, local_timestamp
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ def run_one(mode, runner, csv_path):
                  mode.upper(), mbps, result["ping_ms"], result["server_id_used"])
     except Exception as e:
         write_row(csv_path, {
-            "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "timestamp": local_timestamp(),
             "test_type": mode,
             "server_id_target": getattr(runner, "server_id", "") or "",
             "status": "error",

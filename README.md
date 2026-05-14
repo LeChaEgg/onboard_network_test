@@ -116,7 +116,7 @@ CSV columns:
 
 | Column | Description |
 |---|---|
-| `timestamp` | ISO 8601 local time of the test |
+| `timestamp` | ISO 8601 local time of the test, including timezone offset |
 | `test_type` | `download` or `upload` |
 | `download_mbps` | Download speed (Mbps), empty for upload rows |
 | `upload_mbps` | Upload speed (Mbps), empty for download rows |

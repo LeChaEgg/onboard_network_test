@@ -1,10 +1,14 @@
 """Speedtest wrapper. Runs download-only or upload-only tests."""
 import logging
-import time
+from datetime import datetime
 
 import speedtest
 
 log = logging.getLogger(__name__)
+
+
+def local_timestamp():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 class SpeedtestRunner:
@@ -77,7 +81,7 @@ class SpeedtestRunner:
         """mode: 'download' or 'upload'. Returns result dict."""
         if mode not in ("download", "upload"):
             raise ValueError("mode must be 'download' or 'upload'")
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+        ts = local_timestamp()
 
         s = self._new_speedtest()
 
