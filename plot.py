@@ -43,9 +43,6 @@ def load_csv(path):
         for row in reader:
             try:
                 row["_ts"] = parse_timestamp(row.get("timestamp"))
-                row["test_type"] = (row.get("test_type") or "").strip().lower()
-                if row["test_type"] not in {"download", "upload"}:
-                    raise ValueError("unknown test_type")
                 row["download_mbps"] = parse_float(row.get("download_mbps"))
                 row["upload_mbps"] = parse_float(row.get("upload_mbps"))
                 rows.append(row)
@@ -56,10 +53,10 @@ def load_csv(path):
     return rows
 
 
-def extract_series(rows, test_type, field):
+def extract_series(rows, field):
     times, values = [], []
     for r in rows:
-        if r.get("test_type") == test_type and r.get(field) is not None:
+        if r.get(field) is not None:
             times.append(r["_ts"])
             values.append(r[field])
     return times, values
@@ -76,8 +73,8 @@ def plot(csv_paths, output_path):
 
     all_rows.sort(key=lambda r: r["_ts"])
 
-    dl_times, dl_vals = extract_series(all_rows, "download", "download_mbps")
-    ul_times, ul_vals = extract_series(all_rows, "upload",   "upload_mbps")
+    dl_times, dl_vals = extract_series(all_rows, "download_mbps")
+    ul_times, ul_vals = extract_series(all_rows, "upload_mbps")
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 7), sharex=False)
     title = os.path.splitext(os.path.basename(csv_paths[0]))[0] if len(csv_paths) == 1 else "Network Bandwidth Monitor"
@@ -134,7 +131,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Plot bandwidth results",
         epilog="Examples:\n"
-               "  python plot.py results/20260513_143022_SoftBank_5G.csv\n"
+               "  python plot.py results/20260513_SoftBank_5G.csv\n"
                "  python plot.py SoftBank_5G          # matches any file in results/ containing that string\n"
                "  python plot.py -o out.png SoftBank  # all SoftBank files merged into one plot",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -1,8 +1,9 @@
-"""Speedtest wrapper. Runs download-only or upload-only tests."""
+"""Ookla Speedtest CLI wrapper."""
+import json
 import logging
+import shutil
+import subprocess
 from datetime import datetime
-
-import speedtest
 
 log = logging.getLogger(__name__)
 
@@ -12,14 +13,13 @@ def local_timestamp():
 
 
 class SpeedtestRunner:
-    def __init__(self, server_id=None, server_ids=None, fallback=True, timeout=15, secure=True):
+    def __init__(self, server_id=None, server_ids=None, fallback=True, timeout=120, binary="speedtest"):
         candidates = server_ids if server_ids is not None else server_id
         self.server_ids = self._normalize_server_ids(candidates)
         self.server_id = self.server_ids[0] if self.server_ids else None
         self.fallback = self._normalize_bool(fallback, "fallback")
         self.timeout = self._normalize_timeout(timeout)
-        self.secure = self._normalize_bool(secure, "secure")
-        self._cached_server = None  # reuse same server within a cycle
+        self.binary = self._normalize_binary(binary)
 
     @staticmethod
     def _normalize_server_id(server_id):
@@ -76,75 +76,104 @@ class SpeedtestRunner:
             raise ValueError("timeout must be a positive number of seconds")
         return timeout
 
-    def _new_speedtest(self):
-        return speedtest.Speedtest(secure=self.secure, timeout=self.timeout)
+    @staticmethod
+    def _normalize_binary(binary):
+        if not binary or not str(binary).strip():
+            raise ValueError("speedtest_binary must be a non-empty command")
+        return str(binary).strip()
 
-    def _pick_server(self, s):
-        """Select server, with optional fallback. Returns the chosen server dict."""
+    def _build_command(self, server_id=None):
+        cmd = [
+            self.binary,
+            "--format=json",
+            "--progress=no",
+            "--accept-license",
+            "--accept-gdpr",
+        ]
+        if server_id:
+            cmd.extend(["--server-id", str(server_id)])
+        return cmd
+
+    def _run_command(self, server_id=None):
+        if shutil.which(self.binary) is None:
+            raise RuntimeError(
+                f"Ookla CLI '{self.binary}' not found. Install it and ensure it is on PATH."
+            )
+
+        cmd = self._build_command(server_id)
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=self.timeout,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise RuntimeError(detail or f"speedtest exited with code {completed.returncode}")
+        try:
+            return json.loads(completed.stdout)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"failed to parse speedtest JSON output: {e}") from e
+
+    def _run_with_candidates(self):
         last_error = None
         for server_id in self.server_ids:
             try:
-                s.get_servers([server_id])
-                if not s.servers:
-                    raise speedtest.NoMatchedServers()
-                return s.get_best_server()
+                return self._run_command(server_id)
             except Exception as e:
                 last_error = e
                 log.warning("Server %s unavailable (%s)", server_id, e)
-                continue
 
         if self.server_ids and not self.fallback:
-            raise last_error or speedtest.NoMatchedServers()
+            raise last_error or RuntimeError("all configured servers failed")
 
         if self.server_ids:
             log.warning("All configured servers unavailable; falling back to auto")
-        s.get_servers([])
-        return s.get_best_server()
+        return self._run_command()
 
-    def new_cycle(self):
-        """Call at the start of each cycle to re-evaluate the best server."""
-        self._cached_server = None
+    @staticmethod
+    def _mbps(section):
+        bandwidth = (section or {}).get("bandwidth")
+        if bandwidth is None:
+            return ""
+        return round((float(bandwidth) * 8) / 1_000_000, 3)
 
-    def run(self, mode: str) -> dict:
-        """mode: 'download' or 'upload'. Returns result dict."""
-        if mode not in ("download", "upload"):
-            raise ValueError("mode must be 'download' or 'upload'")
-        ts = local_timestamp()
+    @staticmethod
+    def _round(value, digits=2):
+        if value is None:
+            return ""
+        return round(float(value), digits)
 
-        s = self._new_speedtest()
+    @staticmethod
+    def _bytes(section):
+        value = (section or {}).get("bytes")
+        return int(value) if value is not None else ""
 
-        if self._cached_server is None:
-            self._cached_server = self._pick_server(s)
-            log.debug("Selected server: %s (%s)", self._cached_server["id"], self._cached_server.get("name"))
-        else:
-            # Re-use the server selected at the start of this cycle
-            cached_id = self._cached_server["id"]
-            try:
-                s.get_servers([cached_id])
-                if not s.servers:
-                    raise speedtest.NoMatchedServers()
-                s.get_best_server()
-            except Exception as e:
-                log.warning("Cached server %s unavailable (%s); selecting a fresh server", cached_id, e)
-                s = self._new_speedtest()
-                self._cached_server = self._pick_server(s)
+    def run(self) -> dict:
+        result = self._run_with_candidates()
+        ping = result.get("ping") or {}
+        download = result.get("download") or {}
+        upload = result.get("upload") or {}
+        download_latency = download.get("latency") or {}
+        upload_latency = upload.get("latency") or {}
+        server = result.get("server") or {}
 
-        if mode == "download":
-            val = s.download() / 1e6
-        else:
-            val = s.upload() / 1e6
-
-        r = s.results
-        server = getattr(r, "server", {}) or {}
-        ping = getattr(r, "ping", None)
-        bytes_transferred = r.bytes_received if mode == "download" else r.bytes_sent
         return {
-            "timestamp": ts,
-            "test_type": mode,
-            "download_mbps": round(val, 3) if mode == "download" else "",
-            "upload_mbps":   round(val, 3) if mode == "upload"    else "",
-            "ping_ms": round(float(ping), 2) if ping is not None else "",
-            "bytes_transferred": bytes_transferred,
-            "server_id_used":   server.get("id", ""),
-            "server_name":      server.get("name", ""),
+            "timestamp": local_timestamp(),
+            "download_mbps": self._mbps(download),
+            "upload_mbps": self._mbps(upload),
+            "idle_latency_ms": self._round(ping.get("latency")),
+            "idle_jitter_ms": self._round(ping.get("jitter")),
+            "download_latency_ms": self._round(download_latency.get("iqm")),
+            "download_jitter_ms": self._round(download_latency.get("jitter")),
+            "upload_latency_ms": self._round(upload_latency.get("iqm")),
+            "upload_jitter_ms": self._round(upload_latency.get("jitter")),
+            "packet_loss_percent": self._round(result.get("packetLoss"), digits=3),
+            "download_bytes": self._bytes(download),
+            "upload_bytes": self._bytes(upload),
+            "server_id_used": server.get("id", ""),
+            "server_name": server.get("name", ""),
+            "server_location": server.get("location", ""),
+            "server_country": server.get("country", ""),
         }

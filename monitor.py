@@ -1,9 +1,10 @@
-import deps; deps.ensure(["speedtest", "yaml"])  # auto-install missing packages before other imports
+import deps; deps.ensure(["yaml"])  # auto-install missing packages before other imports
 
 import csv
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 from collections.abc import Mapping
@@ -16,21 +17,24 @@ from runner import SpeedtestRunner, local_timestamp
 log = logging.getLogger(__name__)
 
 CSV_FIELDS = [
-    "timestamp", "test_type",
-    "download_mbps", "upload_mbps", "ping_ms", "bytes_transferred",
-    "server_id_used", "server_name",
+    "timestamp",
+    "download_mbps", "upload_mbps",
+    "idle_latency_ms", "idle_jitter_ms",
+    "download_latency_ms", "download_jitter_ms",
+    "upload_latency_ms", "upload_jitter_ms",
+    "packet_loss_percent",
+    "download_bytes", "upload_bytes",
+    "server_id_used", "server_name", "server_location", "server_country",
     "status", "error",
 ]
 
 DEFAULT_CONFIG = {
-    "server_ids": [14623, 24333],
+    "server_ids": [28910, 48463],
     "server_id": None,
     "server_fallback": True,
-    "speedtest_timeout": 15,
-    "speedtest_secure": False,
+    "speedtest_binary": "speedtest",
+    "speedtest_timeout": 120,
     "interval": 60,
-    "download_rounds": 1,
-    "upload_rounds": 5,
     "output_dir": "results",
 }
 
@@ -154,27 +158,15 @@ def validate_config(raw):
         raw.get("server_fallback", cfg["server_fallback"]),
         "server_fallback",
     )
+    cfg["speedtest_binary"] = _coerce_non_empty_string(
+        raw.get("speedtest_binary", cfg["speedtest_binary"]),
+        "speedtest_binary",
+    )
     cfg["speedtest_timeout"] = _coerce_positive_number(
         raw.get("speedtest_timeout", cfg["speedtest_timeout"]),
         "speedtest_timeout",
     )
-    cfg["speedtest_secure"] = _coerce_bool(
-        raw.get("speedtest_secure", cfg["speedtest_secure"]),
-        "speedtest_secure",
-    )
     cfg["interval"] = _coerce_positive_number(raw.get("interval", cfg["interval"]), "interval")
-    cfg["download_rounds"] = _coerce_int(
-        raw.get("download_rounds", cfg["download_rounds"]),
-        "download_rounds",
-        minimum=0,
-    )
-    cfg["upload_rounds"] = _coerce_int(
-        raw.get("upload_rounds", cfg["upload_rounds"]),
-        "upload_rounds",
-        minimum=0,
-    )
-    if cfg["download_rounds"] + cfg["upload_rounds"] == 0:
-        raise ValueError("at least one of download_rounds or upload_rounds must be greater than 0")
 
     cfg["output_dir"] = _coerce_non_empty_string(raw.get("output_dir", cfg["output_dir"]), "output_dir")
 
@@ -247,11 +239,42 @@ def make_csv_path(output_dir, provider, network, now=None):
     provider_label = sanitize_label(normalize_provider(provider), "provider")
     network_label = sanitize_label(normalize_network(network), "network")
     filename = f"{date}_{provider_label}_{network_label}.csv"
-    return os.path.join(output_dir, filename)
+    csv_path = os.path.join(output_dir, filename)
+    if _has_incompatible_header(csv_path):
+        base, ext = os.path.splitext(csv_path)
+        csv_path = f"{base}_ookla{ext}"
+    return csv_path
+
+
+def _read_csv_header(csv_path):
+    try:
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            return next(csv.reader(f), [])
+    except StopIteration:
+        return []
+    except OSError as e:
+        raise ValueError(f"failed to read existing CSV header from {csv_path}: {e}") from e
+
+
+def _has_incompatible_header(csv_path):
+    if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+        return False
+    header = _read_csv_header(csv_path)
+    if header == CSV_FIELDS:
+        return False
+    log.warning("Existing CSV has an older schema; writing new rows to an _ookla file")
+    return True
+
+
+def _ensure_csv_header_compatible(csv_path):
+    if _has_incompatible_header(csv_path):
+        raise ValueError(f"existing CSV has an incompatible header: {csv_path}")
 
 
 def write_row(csv_path, row):
     new_file = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
+    if not new_file:
+        _ensure_csv_header_compatible(csv_path)
     row = {field: row.get(field, "") for field in CSV_FIELDS}
     with open(csv_path, "a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=CSV_FIELDS, extrasaction="ignore")
@@ -260,50 +283,48 @@ def write_row(csv_path, row):
         w.writerow(row)
 
 
-def run_one(mode, runner, csv_path):
+def run_one(runner, csv_path):
     try:
-        result = runner.run(mode)
+        result = runner.run()
         result.update({"status": "ok", "error": ""})
         write_row(csv_path, result)
-        mbps = result["download_mbps"] if mode == "download" else result["upload_mbps"]
-        log.info("%s: %s Mbps  ping=%sms  server=%s",
-                 mode.upper(), mbps, result["ping_ms"], result["server_id_used"])
+        log.info("RESULT: down=%s Mbps  up=%s Mbps  idle=%sms  loss=%s%%  server=%s",
+                 result["download_mbps"], result["upload_mbps"],
+                 result["idle_latency_ms"], result["packet_loss_percent"],
+                 result["server_id_used"])
     except Exception as e:
         write_row(csv_path, {
             "timestamp": local_timestamp(),
-            "test_type": mode,
             "status": "error",
             "error": str(e),
         })
-        log.error("%s test failed: %s", mode, e)
+        log.error("Speedtest failed: %s", e)
 
 
-def list_servers(secure=True):
-    import speedtest
-    log.info("Fetching server list with speedtest_secure=%s...", secure)
-    s = speedtest.Speedtest(secure=secure)
-    s.get_servers()
-    print(f"\n{'ID':<8} {'Sponsor':<30} {'Location':<24} {'Country':<18} {'Distance(km)'}")
-    print("-" * 95)
-    count = 0
-    for _, servers in sorted(s.servers.items()):
-        for srv in servers:
-            print(f"{srv['id']:<8} {srv['sponsor']:<30} {srv['name']:<24} {srv['country']:<18} {srv['d']:.2f}")
-            count += 1
-            if count >= 30:
-                return
+def list_servers(binary="speedtest", timeout=60):
+    log.info("Fetching server list with Ookla CLI...")
+    completed = subprocess.run(
+        [binary, "--servers", "--accept-license", "--accept-gdpr"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(detail or f"{binary} --servers exited with code {completed.returncode}")
+    print(completed.stdout)
 
 
 def format_server_ids(server_ids):
     return ",".join(str(server_id) for server_id in server_ids) if server_ids else "auto"
 
 
-def manual_speedtest_command(server_ids, secure):
-    parts = ["speedtest-cli"]
-    if secure:
-        parts.append("--secure")
+def manual_speedtest_command(server_ids, binary):
+    parts = [binary]
     if server_ids:
-        parts.extend(["--server", str(server_ids[0])])
+        parts.extend(["--server-id", str(server_ids[0])])
+    parts.extend(["--format=json", "--progress=no", "--accept-license", "--accept-gdpr"])
     return " ".join(parts)
 
 
@@ -326,7 +347,14 @@ def main():
         sys.exit(2)
 
     if "--list-servers" in sys.argv:
-        list_servers(secure=cfg.get("speedtest_secure", True))
+        try:
+            list_servers(
+                binary=cfg.get("speedtest_binary", "speedtest"),
+                timeout=cfg.get("speedtest_timeout", 120),
+            )
+        except Exception as e:
+            log.error("Failed to list servers: %s", e)
+            sys.exit(1)
         return
 
     provider, network = prompt_session_info()
@@ -335,47 +363,37 @@ def main():
     csv_path = make_csv_path(output_dir, provider, network)
 
     interval = cfg.get("interval", 60)
-    download_rounds = cfg.get("download_rounds", 1)
-    upload_rounds = cfg.get("upload_rounds", 5)
     server_ids = cfg.get("server_ids", [])
-    secure = cfg.get("speedtest_secure", True)
     fallback = cfg.get("server_fallback", True)
+    binary = cfg.get("speedtest_binary", "speedtest")
 
     runner = SpeedtestRunner(
         server_ids=server_ids,
         fallback=fallback,
-        timeout=cfg.get("speedtest_timeout", 15),
-        secure=secure,
+        timeout=cfg.get("speedtest_timeout", 120),
+        binary=binary,
     )
 
     print()
     log.info("Provider: %s | Network: %s", provider, network)
     log.info("Output:   %s", csv_path)
-    log.info("Speedtest: target_servers=%s secure=%s fallback=%s",
-             format_server_ids(server_ids), secure, fallback)
+    log.info("Speedtest: binary=%s target_servers=%s fallback=%s",
+             binary, format_server_ids(server_ids), fallback)
     if server_ids:
-        log.info("Manual check first candidate: %s", manual_speedtest_command(server_ids, secure))
-    log.info("Cycle: %d download + %d upload, interval=%ss",
-             download_rounds, upload_rounds, interval)
+        log.info("Manual check first candidate: %s", manual_speedtest_command(server_ids, binary))
+    log.info("Schedule: one full Ookla Speedtest every %ss", interval)
     print()
 
-    cycle = 0
+    count = 0
     try:
         while True:
-            cycle += 1
-            log.info("--- Cycle %d ---", cycle)
-            runner.new_cycle()
-
-            for _ in range(download_rounds):
-                run_one("download", runner, csv_path)
-                time.sleep(interval)
-
-            for _ in range(upload_rounds):
-                run_one("upload", runner, csv_path)
-                time.sleep(interval)
+            count += 1
+            log.info("--- Test %d ---", count)
+            run_one(runner, csv_path)
+            time.sleep(interval)
 
     except KeyboardInterrupt:
-        log.info("Stopped after %d cycle(s). Results saved to %s", cycle, csv_path)
+        log.info("Stopped after %d test(s). Results saved to %s", count, csv_path)
 
 
 if __name__ == "__main__":

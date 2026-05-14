@@ -1,17 +1,19 @@
 # Network Bandwidth Monitor
 
-Logs download/upload bandwidth over time for comparing mobile network providers. Uses [speedtest-cli](https://github.com/sivel/speedtest-cli) against Speedtest.net servers. Missing Python packages are auto-installed on first run.
+Logs bandwidth, latency, jitter, packet loss, and data usage over time for mobile network checks. Uses the official [Ookla Speedtest CLI](https://www.speedtest.net/apps/cli). Missing Python packages are auto-installed on first run.
 
 ## Requirements
 
 - Python 3.8+
 - Internet access
+- Ookla `speedtest` CLI available on `PATH`
 
 ## Quick start
 
 ```bash
-# 1. Clone / copy this folder onto the test machine
-# 2. Run — you will be prompted for provider and network type
+# 1. Install the official Ookla speedtest CLI
+# 2. Clone / copy this folder onto the test machine
+# 3. Run — you will be prompted for provider and network type
 python monitor.py
 
 # ==================================================
@@ -20,12 +22,14 @@ python monitor.py
 # Provider [SoftBank/KDDI/Docomo]: SoftBank
 # Network type [4G/5G]:            5G
 
-# 3. After collecting data, generate a plot
+# 4. After collecting data, generate a plot
 python plot.py SoftBank_5G
 ```
 
 Results are written to `results/<date>_<provider>_<network>.csv`. If the monitor is restarted on the same local date with the same provider and network, it appends to that same CSV.  
 Plot is saved as a PNG alongside the CSV.
+
+If an older same-day CSV has the previous schema, the monitor writes new Ookla rows to `results/<date>_<provider>_<network>_ookla.csv` instead of mixing incompatible columns.
 
 ---
 
@@ -42,18 +46,18 @@ On startup you are prompted for two values:
 | Provider | `SoftBank`, `KDDI`, `Docomo` | SIM provider label, normalized and written into the output filename |
 | Network type | `5G`, `4G` | Network type label, normalized and written into the output filename |
 
-Pass `--list-servers` to print the 30 nearest Speedtest servers (with IDs) and exit, without starting a test.
+Pass `--list-servers` to print nearby Ookla Speedtest servers with IDs and exit, without starting a test.
 
 ### Finding and pinning a server
 
-For consistent comparisons across providers, pin all tests to the same server:
+Server availability can vary by network. For controlled checks, configure one or more candidate servers and keep `server_id_used` in the CSV when analyzing results.
 
 ```bash
 python monitor.py --list-servers
 # Pick one or more IDs from the output, then set them in config.yaml:
 #   server_ids:
-#     - 14623
-#     - 24333
+#     - 28910
+#     - 48463
 ```
 
 ---
@@ -61,26 +65,19 @@ python monitor.py --list-servers
 ## config.yaml
 
 ```yaml
-server_ids:              # Candidate server IDs, tried in order; use [] for auto-select
-  - 14623
-  - 24333
+server_ids:              # Candidate Ookla server IDs, tried in order; use [] for auto-select
+  - 28910
+  - 48463
 server_fallback: true    # Fall back to auto if all configured server_ids fail
-speedtest_timeout: 15    # Seconds before an individual Speedtest.net request times out
-speedtest_secure: false  # false matches: speedtest-cli --list
+speedtest_binary: speedtest
+speedtest_timeout: 120   # Seconds before an individual Ookla CLI run times out
 
-interval: 60             # Seconds between every individual test
-download_rounds: 1       # Download tests per cycle
-upload_rounds: 5         # Upload tests per cycle
+interval: 60             # Seconds between full Ookla Speedtest runs
 
 output_dir: results      # Folder for CSV output (contents are git-ignored)
 ```
 
-**One cycle** = `download_rounds` download test(s) followed by `upload_rounds` upload test(s), each separated by `interval` seconds.
-
-Example with defaults (interval=60, download_rounds=1, upload_rounds=5):
-```
-[DL] –60s– [UL] –60s– [UL] –60s– [UL] –60s– [UL] –60s– [UL] –60s– [DL] ...
-```
+The monitor runs one full Ookla Speedtest every `interval` seconds.
 
 ---
 
@@ -122,16 +119,20 @@ CSV columns:
 | Column | Description |
 |---|---|
 | `timestamp` | ISO 8601 local time of the test, including timezone offset |
-| `test_type` | `download` or `upload` |
-| `download_mbps` | Download speed (Mbps), empty for upload rows |
-| `upload_mbps` | Upload speed (Mbps), empty for download rows |
-| `ping_ms` | Latency to the test server (ms) |
-| `bytes_transferred` | Bytes received for download rows, bytes sent for upload rows |
+| `download_mbps` | Download speed (Mbps) |
+| `upload_mbps` | Upload speed (Mbps) |
+| `idle_latency_ms` | Idle latency reported by Ookla |
+| `idle_jitter_ms` | Idle jitter reported by Ookla |
+| `download_latency_ms` | Download latency reported by Ookla |
+| `download_jitter_ms` | Download jitter reported by Ookla |
+| `upload_latency_ms` | Upload latency reported by Ookla |
+| `upload_jitter_ms` | Upload jitter reported by Ookla |
+| `packet_loss_percent` | Packet loss reported by Ookla |
+| `download_bytes` | Bytes used by the download test |
+| `upload_bytes` | Bytes used by the upload test |
 | `server_id_used` | Server ID actually used |
-| `server_name` | Human-readable server location |
+| `server_name` / `server_location` / `server_country` | Server metadata |
 | `status` | `ok` for completed rows, `error` for failed tests |
 | `error` | Failure detail for `error` rows, otherwise empty |
 
-All tests within a cycle use the same server, re-evaluated at the start of each cycle.
-
-`monitor.py --list-servers` uses the same `speedtest_secure` setting as the monitor run. To compare with the Python CLI directly, use `speedtest-cli --list` when `speedtest_secure: false`, or `speedtest-cli --secure --list` when `speedtest_secure: true`.
+Each CSV row is one full Ookla Speedtest result.

@@ -1,3 +1,2 @@
-speedtest-cli
 PyYAML
 matplotlib

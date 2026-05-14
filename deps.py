@@ -5,7 +5,6 @@ import subprocess
 import sys
 
 _REQUIRED = {
-    "speedtest": "speedtest-cli",
     "yaml": "PyYAML",
     "matplotlib": "matplotlib",
 }
