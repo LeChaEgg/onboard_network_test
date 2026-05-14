@@ -12,10 +12,11 @@ def local_timestamp():
 
 
 class SpeedtestRunner:
-    def __init__(self, server_id=None, fallback=True, timeout=15):
+    def __init__(self, server_id=None, fallback=True, timeout=15, secure=True):
         self.server_id = self._normalize_server_id(server_id)
         self.fallback = self._normalize_bool(fallback, "fallback")
         self.timeout = self._normalize_timeout(timeout)
+        self.secure = self._normalize_bool(secure, "secure")
         self._cached_server = None  # reuse same server within a cycle
 
     @staticmethod
@@ -55,7 +56,7 @@ class SpeedtestRunner:
         return timeout
 
     def _new_speedtest(self):
-        return speedtest.Speedtest(secure=True, timeout=self.timeout)
+        return speedtest.Speedtest(secure=self.secure, timeout=self.timeout)
 
     def _pick_server(self, s):
         """Select server, with optional fallback. Returns the chosen server dict."""
@@ -109,12 +110,14 @@ class SpeedtestRunner:
         r = s.results
         server = getattr(r, "server", {}) or {}
         ping = getattr(r, "ping", None)
+        bytes_transferred = r.bytes_received if mode == "download" else r.bytes_sent
         return {
             "timestamp": ts,
             "test_type": mode,
             "download_mbps": round(val, 3) if mode == "download" else "",
             "upload_mbps":   round(val, 3) if mode == "upload"    else "",
             "ping_ms": round(float(ping), 2) if ping is not None else "",
+            "bytes_transferred": bytes_transferred,
             "server_id_target": self.server_id or "",
             "server_id_used":   server.get("id", ""),
             "server_name":      server.get("name", ""),

@@ -1,8 +1,9 @@
 # Target Speedtest.net server ID (integer), or null to auto-select best
 # Find IDs by running: python monitor.py --list-servers
-server_id: null
+server_id: 28910
 server_fallback: true   # if specified server_id fails, fall back to auto-select
 speedtest_timeout: 15   # seconds before an individual Speedtest.net request times out
+speedtest_secure: true  # true matches: speedtest-cli --secure --list
 
 # One cycle = download_rounds download test(s), then upload_rounds upload test(s)
 # Each test is separated by interval seconds

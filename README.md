@@ -51,7 +51,7 @@ For consistent comparisons across providers, pin all tests to the same server:
 ```bash
 python monitor.py --list-servers
 # Pick an ID from the output, then set it in config.yaml:
-#   server_id: 6087
+#   server_id: 28910
 ```
 
 ---
@@ -59,9 +59,10 @@ python monitor.py --list-servers
 ## config.yaml
 
 ```yaml
-server_id: null          # Integer server ID to pin, or null for auto-select
+server_id: 28910         # Integer server ID to pin, or null for auto-select
 server_fallback: true    # Fall back to auto if the pinned server is unreachable
 speedtest_timeout: 15    # Seconds before an individual Speedtest.net request times out
+speedtest_secure: true   # true matches: speedtest-cli --secure --list
 
 interval: 60             # Seconds between every individual test
 download_rounds: 1       # Download tests per cycle
@@ -121,6 +122,7 @@ CSV columns:
 | `download_mbps` | Download speed (Mbps), empty for upload rows |
 | `upload_mbps` | Upload speed (Mbps), empty for download rows |
 | `ping_ms` | Latency to the test server (ms) |
+| `bytes_transferred` | Bytes received for download rows, bytes sent for upload rows |
 | `server_id_target` | Server ID requested in config (empty if auto) |
 | `server_id_used` | Server ID actually used |
 | `server_name` | Human-readable server location |
@@ -128,3 +130,5 @@ CSV columns:
 | `error` | Failure detail for `error` rows, otherwise empty |
 
 All tests within a cycle use the same server, re-evaluated at the start of each cycle.
+
+`monitor.py --list-servers` uses the same `speedtest_secure` setting as the monitor run. To compare with the Python CLI directly, use `speedtest-cli --secure --list` when `speedtest_secure: true`, or `speedtest-cli --list` when `speedtest_secure: false`.

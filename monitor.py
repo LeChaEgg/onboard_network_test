@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 CSV_FIELDS = [
     "timestamp", "test_type",
-    "download_mbps", "upload_mbps", "ping_ms",
+    "download_mbps", "upload_mbps", "ping_ms", "bytes_transferred",
     "server_id_target", "server_id_used", "server_name",
     "status", "error",
 ]
@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
     "server_id": None,
     "server_fallback": True,
     "speedtest_timeout": 15,
+    "speedtest_secure": True,
     "interval": 60,
     "download_rounds": 1,
     "upload_rounds": 5,
@@ -135,6 +136,10 @@ def validate_config(raw):
     cfg["speedtest_timeout"] = _coerce_positive_number(
         raw.get("speedtest_timeout", cfg["speedtest_timeout"]),
         "speedtest_timeout",
+    )
+    cfg["speedtest_secure"] = _coerce_bool(
+        raw.get("speedtest_secure", cfg["speedtest_secure"]),
+        "speedtest_secure",
     )
     cfg["interval"] = _coerce_positive_number(raw.get("interval", cfg["interval"]), "interval")
     cfg["download_rounds"] = _coerce_int(
@@ -253,19 +258,20 @@ def run_one(mode, runner, csv_path):
         log.error("%s test failed: %s", mode, e)
 
 
-def list_servers():
+def list_servers(secure=True):
     import speedtest
-    log.info("Fetching server list...")
-    s = speedtest.Speedtest(secure=True)
-    s.get_servers([])
-    servers = sorted(
-        [srv for sublist in s.servers.values() for srv in sublist],
-        key=lambda x: x["d"],
-    )
-    print(f"\n{'ID':<8} {'Distance(km)':<14} {'Name':<30} {'Sponsor'}")
-    print("-" * 70)
-    for srv in servers[:30]:
-        print(f"{srv['id']:<8} {srv['d']:<14.1f} {srv['name']:<30} {srv['sponsor']}")
+    log.info("Fetching server list with speedtest_secure=%s...", secure)
+    s = speedtest.Speedtest(secure=secure)
+    s.get_servers()
+    print(f"\n{'ID':<8} {'Sponsor':<30} {'Location':<24} {'Country':<18} {'Distance(km)'}")
+    print("-" * 95)
+    count = 0
+    for _, servers in sorted(s.servers.items()):
+        for srv in servers:
+            print(f"{srv['id']:<8} {srv['sponsor']:<30} {srv['name']:<24} {srv['country']:<18} {srv['d']:.2f}")
+            count += 1
+            if count >= 30:
+                return
 
 
 def prompt_session_info():
@@ -280,17 +286,17 @@ def prompt_session_info():
 def main():
     configure_logging()
 
-    if "--list-servers" in sys.argv:
-        list_servers()
-        return
-
-    provider, network = prompt_session_info()
-
     try:
         cfg = load_config()
     except ValueError as e:
         log.error("Invalid configuration: %s", e)
         sys.exit(2)
+
+    if "--list-servers" in sys.argv:
+        list_servers(secure=cfg.get("speedtest_secure", True))
+        return
+
+    provider, network = prompt_session_info()
 
     output_dir = cfg.get("output_dir", "results")
     csv_path = make_csv_path(output_dir, provider, network)
@@ -303,6 +309,7 @@ def main():
         server_id=cfg.get("server_id"),
         fallback=cfg.get("server_fallback", True),
         timeout=cfg.get("speedtest_timeout", 15),
+        secure=cfg.get("speedtest_secure", True),
     )
 
     print()
