@@ -1,0 +1,21 @@
+# Result data — kept locally, not synced
+results/*
+!results/.gitkeep
+
+# Local tests and sample artifacts
+tests/
+test_*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+
+# Plots generated from data
+*.png
+
+# Local machine/editor settings
+.DS_Store
+.claude/

@@ -1,0 +1,13 @@
+# Target Speedtest.net server ID (integer), or null to auto-select best
+# Find IDs by running: python monitor.py --list-servers
+server_id: null
+server_fallback: true   # if specified server_id fails, fall back to auto-select
+speedtest_timeout: 15   # seconds before an individual Speedtest.net request times out
+
+# One cycle = download_rounds download test(s), then upload_rounds upload test(s)
+# Each test is separated by interval seconds
+interval: 60            # seconds between every individual test
+download_rounds: 1      # download tests per cycle
+upload_rounds: 5        # upload tests per cycle
+
+output_dir: results   # folder to store CSV files; contents are git-ignored
