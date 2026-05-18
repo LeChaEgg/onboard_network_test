@@ -7,7 +7,9 @@ server_fallback: true   # if all configured server_ids fail, fall back to auto-s
 speedtest_binary: speedtest
 speedtest_timeout: 120  # seconds before an individual Ookla CLI run times out
 
-# Run one full Ookla Speedtest every interval seconds
+# Run one full Ookla Speedtest every interval seconds.
+# Be conservative: frequent requests may trigger server-side limits and break long continuous tests.
+# There is no clear published limit, so increase interval for long unattended runs.
 interval: 60
 
 output_dir: results   # folder to store CSV files; contents are git-ignored

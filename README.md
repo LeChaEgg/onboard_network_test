@@ -79,6 +79,8 @@ output_dir: results      # Folder for CSV output (contents are git-ignored)
 
 The monitor runs one full Ookla Speedtest every `interval` seconds.
 
+Important notice: frequent Speedtest requests to the same server may trigger server-side limits and interrupt a continuous test. Ookla does not publish a clear limit for this behavior, so use a conservative `interval` and be especially careful when planning long unattended runs. If a long test is required, leave enough spacing between requests and monitor for failed rows in the CSV.
+
 ---
 
 ## plot.py
